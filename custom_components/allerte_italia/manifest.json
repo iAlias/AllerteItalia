@@ -1,0 +1,13 @@
+{
+  "domain": "allerte_italia",
+  "name": "Allerte Italia",
+  "codeowners": ["@iAlias"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/iAlias/allerte-italia",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/iAlias/allerte-italia/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
