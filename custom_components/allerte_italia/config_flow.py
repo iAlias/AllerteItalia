@@ -18,7 +18,7 @@ from .const import (
     ALERT_LEVELS,
     CONF_ALERT_ENABLED,
     CONF_ALERT_MIN_LEVEL,
-    CONF_ALERT_ZONE,
+    CONF_ALERT_TOWN,
     CONF_FUEL_ENABLED,
     CONF_FUEL_THRESHOLD,
     CONF_FUEL_TYPES,
@@ -64,7 +64,7 @@ class AllerteItaliaConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Optional(
                     CONF_RADIUS_QUAKES, default=DEFAULT_RADIUS_QUAKES_KM
                 ): vol.All(vol.Coerce(float), vol.Range(min=10, max=1000)),
-                vol.Optional(CONF_ALERT_ZONE, default=""): str,
+                vol.Optional(CONF_ALERT_TOWN, default=""): str,
                 vol.Optional("temperature_entity", default=""): str,
                 vol.Optional("humidity_entity", default=""): str,
             }

@@ -1,19 +1,20 @@
 """Civil Protection bulletins.
 
 The Dipartimento della Protezione Civile publishes its hydrogeological
-criticality bulletins on GitHub as JSON, refreshed by an automated pipeline
-several times a day. Each bulletin points at a TopoJSON of the alert zones and
-carries an HTML description per zone.
+criticality bulletins on GitHub, refreshed by an automated pipeline several
+times a day. The bulletin document itself carries no levels: it points at a
+TopoJSON where every alert zone is a geometry whose properties hold the levels
+and, usefully, the list of municipalities the zone covers.
 
-The integration does not work out which polygon the user sits in: the zone is
-chosen once during setup. That keeps behaviour predictable and survives the DPC
-redrawing its boundaries.
+That list is why the integration asks for a municipality rather than a zone
+name: nobody knows they live in "Bacini Tordino Vomano", but everybody knows
+they live in Teramo. No point-in-polygon is needed — the mapping is in the data.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -22,31 +23,55 @@ from ..const import ALERT_LEVELS
 # Bulletin file names look like 20260828_1438.json, most recent last.
 BULLETIN_NAME = re.compile(r"^(\d{8})_(\d{4})\.json$")
 
-# The bulletins name levels in Italian; anything else is treated as unknown.
-_LEVEL_WORDS = {
-    "verde": "verde",
-    "gialla": "giallo",
-    "giallo": "giallo",
-    "arancione": "arancione",
-    "rossa": "rosso",
-    "rosso": "rosso",
-}
+# The property holding the overall level shown on the map, plus the per-risk
+# ones, in the order they are reported.
+LEVEL_PROPERTY = "Rappresentata nella mappa"
+RISK_PROPERTIES = (
+    "Per rischio idraulico",
+    "Per rischio temporali",
+    "Per rischio idrogeologico",
+)
+ZONE_PROPERTY = "Nome zona"
+TOWNS_PROPERTY = "Comuni"
+
+# The bulletins spell levels out in Italian. "Nessuna allerta" is the calm
+# case and must be recognised, or a quiet day would read as unknown.
+_LEVEL_WORDS = (
+    ("rossa", "rosso"),
+    ("rosso", "rosso"),
+    ("arancione", "arancione"),
+    ("gialla", "giallo"),
+    ("giallo", "giallo"),
+    ("verde", "verde"),
+    ("nessuna allerta", "verde"),
+)
+
+
+@dataclass(frozen=True)
+class Zone:
+    """One alert zone, with the levels declared for it today."""
+
+    name: str
+    level: str
+    risks: dict[str, str] = field(default_factory=dict)
+    towns: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class Bulletin:
-    """One published bulletin, reduced to what the integration shows."""
+    """A published bulletin reduced to what the integration shows."""
 
     name: str
     published_at: datetime | None
-    zone_levels: dict[str, str]
+    topojson_url: str | None
+    zones: tuple[Zone, ...] = ()
 
 
 def latest_bulletin_name(names: list[str]) -> str | None:
     """Pick the most recent bulletin from a directory listing.
 
-    The names sort chronologically as strings, which is why the format is
-    checked first: a stray file must not win the comparison.
+    The names sort chronologically as strings, so the format is checked first:
+    a stray file must not win the comparison.
     """
     valid = [n for n in names if BULLETIN_NAME.match(n)]
     if not valid:
@@ -55,27 +80,91 @@ def latest_bulletin_name(names: list[str]) -> str | None:
 
 
 def parse_bulletin(payload: dict[str, Any]) -> Bulletin:
-    """Read a bulletin document into name, timestamp and per-zone levels."""
+    """Read the bulletin document: its name, time, and where the zones live."""
+    today = payload.get("today")
+    topojson_url = None
+    if isinstance(today, dict):
+        topojson_url = today.get("topo_json")
+
     return Bulletin(
         name=str(payload.get("name") or "").strip(),
         published_at=_parse_time(payload.get("date")),
-        zone_levels=_zone_levels(payload),
+        topojson_url=topojson_url,
     )
 
 
-def level_for_zone(bulletin: Bulletin, zone: str) -> str:
-    """The level for one zone, defaulting to calm when it is not mentioned.
+def parse_zones(topojson: dict[str, Any]) -> tuple[Zone, ...]:
+    """Read every alert zone out of the TopoJSON geometries."""
+    objects = topojson.get("objects")
+    if not isinstance(objects, dict):
+        return ()
 
-    A zone missing from the bulletin means no criticality was declared for it,
-    which is green — not an error.
+    zones: list[Zone] = []
+
+    for collection in objects.values():
+        if not isinstance(collection, dict):
+            continue
+        for geometry in collection.get("geometries") or []:
+            if not isinstance(geometry, dict):
+                continue
+            properties = geometry.get("properties")
+            if not isinstance(properties, dict):
+                continue
+
+            name = str(properties.get(ZONE_PROPERTY) or "").strip()
+            if not name:
+                continue
+
+            level = normalise_level(str(properties.get(LEVEL_PROPERTY) or ""))
+            risks = {
+                key: normalise_level(str(properties.get(key) or "")) or "verde"
+                for key in RISK_PROPERTIES
+                if properties.get(key)
+            }
+            towns = properties.get(TOWNS_PROPERTY) or []
+            zones.append(
+                Zone(
+                    name=name,
+                    level=level or "verde",
+                    risks=risks,
+                    towns=tuple(str(t).strip() for t in towns if t),
+                )
+            )
+
+    return tuple(zones)
+
+
+def zone_for_town(zones: tuple[Zone, ...], town: str) -> Zone | None:
+    """The zone covering a municipality, matched case-insensitively.
+
+    Falls back to matching the zone's own name, so someone who does know their
+    zone can name it directly.
     """
-    return bulletin.zone_levels.get(zone.casefold(), "verde")
+    wanted = (town or "").strip().casefold()
+    if not wanted:
+        return None
+
+    for zone in zones:
+        if any(t.casefold() == wanted for t in zone.towns):
+            return zone
+
+    for zone in zones:
+        if zone.name.casefold() == wanted:
+            return zone
+
+    return None
 
 
 def normalise_level(raw: str) -> str | None:
-    """Map the wording used in the bulletins onto the four levels."""
+    """Map the wording used in the bulletins onto the four levels.
+
+    Order matters: "nessuna allerta" is checked after the colours so that a
+    string mentioning both cannot be read as calm.
+    """
     text = (raw or "").strip().casefold()
-    for word, level in _LEVEL_WORDS.items():
+    if not text:
+        return None
+    for word, level in _LEVEL_WORDS:
         if word in text:
             return level
     return None
@@ -86,39 +175,6 @@ def is_at_least(level: str, minimum: str) -> bool:
     if level not in ALERT_LEVELS or minimum not in ALERT_LEVELS:
         return False
     return ALERT_LEVELS.index(level) >= ALERT_LEVELS.index(minimum)
-
-
-def _zone_levels(payload: dict[str, Any]) -> dict[str, str]:
-    """Zone name to level, from whichever shape the bulletin uses.
-
-    The documents carry the zones under `today`, and describe them either as a
-    list of records or as free HTML. Only the structured form is read; the HTML
-    is left to the bulletin link shown to the user.
-    """
-    levels: dict[str, str] = {}
-    today = payload.get("today")
-    if not isinstance(today, dict):
-        return levels
-
-    zones = today.get("zones") or today.get("zone") or []
-    if not isinstance(zones, list):
-        return levels
-
-    for entry in zones:
-        if not isinstance(entry, dict):
-            continue
-        name = entry.get("name") or entry.get("zona") or entry.get("id")
-        raw_level = (
-            entry.get("level")
-            or entry.get("livello")
-            or entry.get("criticita")
-            or ""
-        )
-        level = normalise_level(str(raw_level))
-        if name and level:
-            levels[str(name).strip().casefold()] = level
-
-    return levels
 
 
 def _parse_time(raw: Any) -> datetime | None:

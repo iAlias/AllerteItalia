@@ -91,8 +91,8 @@ Assistant sia in esecuzione né una connessione di rete.
 
 ## Limiti dichiarati
 
-- La zona di allerta si **sceglie in configurazione**: l'integrazione non calcola in
-  quale poligono cadono le tue coordinate.
+- La zona di allerta si ricava dal **comune** che indichi: il bollettino elenca i
+  comuni di ogni zona, quindi non serve calcolare in quale poligono cadi.
 - Le ondate di calore sono **derivate** dall'indice di calore: il Ministero della
   Salute pubblica i suoi bollettini solo in PDF.
 - Una sola posizione, quella di casa configurata in Home Assistant.

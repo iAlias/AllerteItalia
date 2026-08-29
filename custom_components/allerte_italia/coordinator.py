@@ -18,6 +18,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
+    ALERT_LEVELS,
     DEFAULT_QUAKE_MIN_MAGNITUDE,
     DOMAIN,
     DPC_CRITICALITY_URL,
@@ -33,8 +34,9 @@ from .const import (
 from .sources.base import Measurement, SourceResult
 from .sources.civil_protection import (
     latest_bulletin_name,
-    level_for_zone,
     parse_bulletin,
+    parse_zones,
+    zone_for_town,
 )
 from .sources.fuel import cheapest, parse_prices, parse_stations
 from .sources.heat import heat_index_c, heat_level
@@ -205,10 +207,17 @@ class QuakeFetcher:
 
 
 class AlertFetcher:
-    """Civil Protection criticality bulletins."""
+    """Civil Protection criticality bulletins.
 
-    def __init__(self, zone: str) -> None:
-        self._zone = zone
+    The zones and their levels live in a 1.2 MB TopoJSON referenced by the
+    bulletin, so it is downloaded only when a new bulletin is published rather
+    than on every hourly poll.
+    """
+
+    def __init__(self, town: str) -> None:
+        self._town = town
+        self._bulletin_name: str | None = None
+        self._zones: tuple[Any, ...] = ()
 
     async def async_fetch(self, hass: HomeAssistant) -> SourceResult:
         session = async_get_clientsession(hass)
@@ -233,24 +242,42 @@ class AlertFetcher:
             payload = await response.json(content_type=None)
 
         bulletin = parse_bulletin(payload)
-        level = level_for_zone(bulletin, self._zone)
+
+        if latest != self._bulletin_name or not self._zones:
+            if not bulletin.topojson_url:
+                return SourceResult.unavailable("bulletin has no zone map")
+            async with session.get(
+                bulletin.topojson_url, timeout=REQUEST_TIMEOUT
+            ) as response:
+                response.raise_for_status()
+                topojson = await response.json(content_type=None)
+            self._zones = parse_zones(topojson)
+            self._bulletin_name = latest
+
+        zone = zone_for_town(self._zones, self._town)
+        if zone is None:
+            return SourceResult.unavailable(
+                f"'{self._town}' is not listed in any alert zone"
+            )
 
         return SourceResult(
-            level=level,
+            level=zone.level,
             measurements=[
                 Measurement(
                     key="alert_level",
-                    value=float(["verde", "giallo", "arancione", "rosso"].index(level)),
+                    value=float(ALERT_LEVELS.index(zone.level)),
                     unit="",
                     attributes={
-                        "level": level,
-                        "zone": self._zone,
+                        "level": zone.level,
+                        "zone": zone.name,
+                        "town": self._town,
                         "bulletin": bulletin.name,
                         "published_at": (
                             bulletin.published_at.isoformat()
                             if bulletin.published_at
                             else None
                         ),
+                        **zone.risks,
                     },
                 )
             ],
@@ -322,7 +349,7 @@ def build_coordinators(
 ) -> dict[str, SourceCoordinator]:
     """Create the coordinators enabled by this config entry."""
     from .const import (  # local import keeps the module import graph shallow
-        CONF_ALERT_ZONE,
+        CONF_ALERT_TOWN,
         CONF_FUEL_TYPES,
         CONF_QUAKE_MIN_MAGNITUDE,
         CONF_RADIUS_FUEL,
@@ -361,10 +388,10 @@ def build_coordinators(
         ),
     }
 
-    zone = data.get(CONF_ALERT_ZONE)
-    if zone:
+    town = data.get(CONF_ALERT_TOWN)
+    if town:
         coordinators["alerts"] = SourceCoordinator(
-            hass, "alerts", SCAN_INTERVAL_ALERTS, AlertFetcher(zone)
+            hass, "alerts", SCAN_INTERVAL_ALERTS, AlertFetcher(town)
         )
 
     temperature_entity = data.get("temperature_entity")

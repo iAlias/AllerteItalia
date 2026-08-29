@@ -38,7 +38,7 @@ STATIONS_MAX_AGE: Final = timedelta(days=7)
 CONF_RADIUS_FUEL: Final = "radius_fuel"
 CONF_RADIUS_QUAKES: Final = "radius_quakes"
 CONF_FUEL_TYPES: Final = "fuel_types"
-CONF_ALERT_ZONE: Final = "alert_zone"
+CONF_ALERT_TOWN: Final = "alert_town"
 
 CONF_NOTIFY_SERVICE: Final = "notify_service"
 CONF_FUEL_ENABLED: Final = "fuel_enabled"

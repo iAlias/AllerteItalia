@@ -4,12 +4,12 @@ from datetime import datetime, timezone
 
 from custom_components.allerte_italia.geo import haversine_km, within_radius
 from custom_components.allerte_italia.sources.civil_protection import (
-    Bulletin,
     is_at_least,
     latest_bulletin_name,
-    level_for_zone,
     normalise_level,
     parse_bulletin,
+    parse_zones,
+    zone_for_town,
 )
 from custom_components.allerte_italia.sources.heat import heat_index_c, heat_level
 from custom_components.allerte_italia.sources.quakes import (
@@ -157,6 +157,46 @@ class TestHeat:
 
 
 class TestCivilProtection:
+    """The bulletin points at a TopoJSON; the levels and towns live there."""
+
+    BULLETIN = {
+        "name": "Bollettino del 28 agosto 2026 ore 14:38",
+        "date": "2026-08-28T12:51:15.936Z",
+        "today": {
+            "topo_json": "https://example.invalid/20260828_1438_today.json",
+            "html_descrition": "<p>…</p>",
+        },
+    }
+
+    TOPOJSON = {
+        "objects": {
+            "20260828_1438_today": {
+                "type": "GeometryCollection",
+                "geometries": [
+                    {
+                        "properties": {
+                            "Nome zona": "Sicilia or",
+                            "Rappresentata nella mappa": "Allerta GIALLA",
+                            "Per rischio idraulico": "NESSUNA ALLERTA",
+                            "Per rischio temporali": "Allerta GIALLA",
+                            "Comuni": ["Catania", "Acireale", "Misterbianco"],
+                        }
+                    },
+                    {
+                        "properties": {
+                            "Nome zona": "Bacini Tordino Vomano",
+                            "Rappresentata nella mappa": (
+                                "Assenza di fenomeni significativi prevedibili "
+                                "/ NESSUNA ALLERTA"
+                            ),
+                            "Comuni": ["Teramo", "Atri"],
+                        }
+                    },
+                ],
+            }
+        }
+    }
+
     def test_picks_the_most_recent_bulletin(self):
         names = ["20260827_1500.json", "20260828_1438.json", "20260828_0930.json"]
 
@@ -170,32 +210,56 @@ class TestCivilProtection:
     def test_returns_nothing_when_there_are_no_bulletins(self):
         assert latest_bulletin_name(["README.md"]) is None
 
-    def test_reads_name_and_zone_levels(self):
-        payload = {
-            "name": "Bollettino del 28 agosto 2026 ore 14:38",
-            "date": "2026-08-28T12:51:15.936Z",
-            "today": {
-                "zones": [
-                    {"name": "Sicilia Or", "level": "Allerta GIALLA"},
-                    {"name": "Sicilia Occ", "level": "Allerta ARANCIONE"},
-                ]
-            },
-        }
-
-        bulletin = parse_bulletin(payload)
+    def test_the_bulletin_carries_the_link_to_the_zones(self):
+        bulletin = parse_bulletin(self.BULLETIN)
 
         assert bulletin.name.startswith("Bollettino")
-        assert bulletin.zone_levels["sicilia or"] == "giallo"
-        assert bulletin.zone_levels["sicilia occ"] == "arancione"
+        assert bulletin.topojson_url.endswith("_today.json")
 
-    def test_a_zone_not_mentioned_counts_as_calm(self):
-        bulletin = Bulletin(name="x", published_at=None, zone_levels={})
+    def test_reads_the_zones_out_of_the_topojson(self):
+        zones = parse_zones(self.TOPOJSON)
 
-        assert level_for_zone(bulletin, "Sicilia Or") == "verde"
+        assert [z.name for z in zones] == ["Sicilia or", "Bacini Tordino Vomano"]
+
+    def test_reads_the_level_of_a_zone(self):
+        zones = parse_zones(self.TOPOJSON)
+
+        assert zones[0].level == "giallo"
+
+    def test_no_alert_reads_as_green_not_unknown(self):
+        zones = parse_zones(self.TOPOJSON)
+
+        assert zones[1].level == "verde"
+
+    def test_keeps_the_per_risk_levels(self):
+        zones = parse_zones(self.TOPOJSON)
+
+        assert zones[0].risks["Per rischio temporali"] == "giallo"
+
+    def test_finds_the_zone_from_a_municipality(self):
+        zones = parse_zones(self.TOPOJSON)
+
+        assert zone_for_town(zones, "Catania").name == "Sicilia or"
+
+    def test_the_municipality_match_ignores_case(self):
+        zones = parse_zones(self.TOPOJSON)
+
+        assert zone_for_town(zones, "  cAtAnIa ").name == "Sicilia or"
+
+    def test_falls_back_to_matching_the_zone_name(self):
+        zones = parse_zones(self.TOPOJSON)
+
+        assert zone_for_town(zones, "Sicilia or").name == "Sicilia or"
+
+    def test_an_unknown_municipality_finds_nothing(self):
+        zones = parse_zones(self.TOPOJSON)
+
+        assert zone_for_town(zones, "Lugano") is None
 
     def test_level_wording_is_normalised(self):
         assert normalise_level("Allerta ROSSA") == "rosso"
         assert normalise_level("criticità gialla") == "giallo"
+        assert normalise_level("NESSUNA ALLERTA") == "verde"
         assert normalise_level("qualcosa d'altro") is None
 
     def test_severity_comparison(self):
@@ -203,5 +267,8 @@ class TestCivilProtection:
         assert is_at_least("giallo", "arancione") is False
         assert is_at_least("rosso", "rosso") is True
 
-    def test_a_malformed_bulletin_yields_no_zones_rather_than_raising(self):
-        assert parse_bulletin({"today": "not a mapping"}).zone_levels == {}
+    def test_a_malformed_topojson_yields_no_zones_rather_than_raising(self):
+        assert parse_zones({"objects": "not a mapping"}) == ()
+
+    def test_a_bulletin_without_a_zone_map_is_reported_not_guessed(self):
+        assert parse_bulletin({"today": "not a mapping"}).topojson_url is None
