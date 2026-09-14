@@ -2,7 +2,7 @@
 
 **Prezzi dei carburanti, terremoti, allerte della Protezione Civile e ondate di calore in Home Assistant — con notifiche che scattano quando lo decidi tu.**
 
-[![Validate](https://github.com/iAlias/allerte-italia/actions/workflows/validate.yml/badge.svg)](https://github.com/iAlias/allerte-italia/actions/workflows/validate.yml)
+[![Validate](https://github.com/iAlias/AllerteItalia/actions/workflows/validate.yml/badge.svg)](https://github.com/iAlias/AllerteItalia/actions/workflows/validate.yml)
 [![HACS](https://img.shields.io/badge/HACS-custom-41BDF5)](https://hacs.xyz/)
 [![Licenza](https://img.shields.io/badge/licenza-MIT-green)](LICENSE)
 
@@ -24,7 +24,7 @@ avvisato quando il gasolio scende sotto 1,70 € o quando trema la terra vicino 
 ## Installazione
 
 **HACS** → Integrazioni → menu ⋮ → *Repository personalizzati* → aggiungi
-`https://github.com/iAlias/allerte-italia` con categoria **Integration** →
+`https://github.com/iAlias/AllerteItalia` con categoria **Integration** →
 installa e riavvia Home Assistant.
 
 Poi *Impostazioni → Dispositivi e servizi → Aggiungi integrazione → Allerte Italia*.
