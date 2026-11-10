@@ -131,6 +131,32 @@ def cheapest(prices: Iterable[Price], fuel: str) -> Price | None:
     return min(candidates, key=lambda p: p.price)
 
 
+def ranking(
+    prices: Iterable[Price],
+    fuel: str,
+    distances: dict[str, float],
+    limit: int,
+) -> list[Price]:
+    """The cheapest stations for one fuel, one entry per station.
+
+    Each station is represented by its lowest price (normally the self-service
+    one); ties are broken by distance, so the nearer of two equal prices wins.
+    """
+    best: dict[str, Price] = {}
+    for price in prices:
+        if price.fuel.casefold() != fuel.casefold():
+            continue
+        current = best.get(price.station_id)
+        if current is None or price.price < current.price:
+            best[price.station_id] = price
+
+    ordered = sorted(
+        best.values(),
+        key=lambda p: (p.price, distances.get(p.station_id, float("inf"))),
+    )
+    return ordered[:limit]
+
+
 def _rows(lines: Iterable[str], expected_fields: int) -> Iterator[list[str]]:
     """Yield well-formed rows, skipping the preamble, header and junk."""
     for index, line in enumerate(lines):

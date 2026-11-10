@@ -38,7 +38,7 @@ from .sources.civil_protection import (
     parse_zones,
     zone_for_town,
 )
-from .sources.fuel import cheapest, parse_prices, parse_stations
+from .sources.fuel import parse_prices, parse_stations, ranking
 from .sources.heat import heat_index_c, heat_level
 from .sources.quakes import build_query, default_window, parse_events
 
@@ -87,11 +87,15 @@ class FuelFetcher:
         longitude: float,
         radius_km: float,
         fuel_types: list[str],
+        per_station: bool = False,
+        ranking_size: int = 5,
     ) -> None:
         self._latitude = latitude
         self._longitude = longitude
         self._radius_km = radius_km
         self._fuel_types = fuel_types
+        self._per_station = per_station
+        self._ranking_size = ranking_size
         self._stations: list[Any] = []
         self._stations_fetched_at: datetime | None = None
 
@@ -107,7 +111,9 @@ class FuelFetcher:
         by_id = {s.station_id: s for s in self._stations}
         measurements: list[Measurement] = []
 
-        for price in prices:
+        # Per-station sensors are opt-in: without them only the "cheapest"
+        # summary below is produced.
+        for price in prices if self._per_station else []:
             station = by_id.get(price.station_id)
             if station is None:
                 continue
@@ -131,10 +137,14 @@ class FuelFetcher:
                 )
             )
 
+        distances = {s.station_id: s.distance_km for s in self._stations}
         for fuel in self._fuel_types:
-            best = cheapest(prices, fuel)
-            if best is None:
+            # The ranking breaks ties by distance, so its first entry is the
+            # cheapest station that is also the nearest among equal prices.
+            top = ranking(prices, fuel, distances, self._ranking_size)
+            if not top:
                 continue
+            best = top[0]
             station = by_id.get(best.station_id)
             measurements.append(
                 Measurement(
@@ -144,9 +154,16 @@ class FuelFetcher:
                     attributes={
                         "fuel": fuel,
                         "station": station.name if station else None,
+                        "brand": station.brand if station else None,
+                        "address": station.address if station else None,
                         "town": station.town if station else None,
                         "distance_km": station.distance_km if station else None,
                         "self_service": best.self_service,
+                        "reported_at": best.reported_at,
+                        "ranking": [
+                            _ranking_entry(price, by_id.get(price.station_id))
+                            for price in top
+                        ],
                     },
                 )
             )
@@ -344,18 +361,37 @@ def _numeric_state(hass: HomeAssistant, entity_id: str) -> float | None:
         return None
 
 
+def _ranking_entry(price: Any, station: Any) -> dict[str, Any]:
+    """One row of the "cheapest" ranking, flat so templates can read it."""
+    return {
+        "price": price.price,
+        "self_service": price.self_service,
+        "reported_at": price.reported_at,
+        "station": station.name if station else None,
+        "brand": station.brand if station else None,
+        "address": station.address if station else None,
+        "town": station.town if station else None,
+        "distance_km": station.distance_km if station else None,
+        "latitude": station.latitude if station else None,
+        "longitude": station.longitude if station else None,
+    }
+
+
 def build_coordinators(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, SourceCoordinator]:
     """Create the coordinators enabled by this config entry."""
     from .const import (  # local import keeps the module import graph shallow
         CONF_ALERT_TOWN,
+        CONF_FUEL_PER_STATION,
         CONF_FUEL_TYPES,
         CONF_QUAKE_MIN_MAGNITUDE,
         CONF_RADIUS_FUEL,
         CONF_RADIUS_QUAKES,
+        DEFAULT_FUEL_PER_STATION,
         DEFAULT_FUEL_TYPES,
         DEFAULT_RADIUS_FUEL_KM,
+        FUEL_RANKING_SIZE,
         DEFAULT_RADIUS_QUAKES_KM,
     )
 
@@ -373,6 +409,8 @@ def build_coordinators(
                 longitude,
                 float(data.get(CONF_RADIUS_FUEL, DEFAULT_RADIUS_FUEL_KM)),
                 list(data.get(CONF_FUEL_TYPES, DEFAULT_FUEL_TYPES)),
+                bool(data.get(CONF_FUEL_PER_STATION, DEFAULT_FUEL_PER_STATION)),
+                FUEL_RANKING_SIZE,
             ),
         ),
         "quakes": SourceCoordinator(

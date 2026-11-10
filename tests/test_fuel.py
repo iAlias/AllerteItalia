@@ -1,9 +1,11 @@
 """Parsing the MIMIT CSVs, including the rows that are not well behaved."""
 
 from custom_components.allerte_italia.sources.fuel import (
+    Price,
     cheapest,
     parse_prices,
     parse_stations,
+    ranking,
 )
 
 # Catania, roughly.
@@ -111,3 +113,46 @@ class TestCheapest:
         prices = parse_prices(PRICES_CSV, {"1001"})
 
         assert cheapest(prices, "Cherosene") is None
+
+
+def _price(station_id, value, self_service=True, fuel="Benzina"):
+    return Price(station_id, fuel, value, self_service, "08/11/2026 12:00:00")
+
+
+class TestRanking:
+    PRICES = [
+        _price("A", 1.999, self_service=False),
+        _price("A", 1.949),
+        _price("B", 1.949),
+        _price("C", 1.899),
+        _price("D", 2.100),
+        _price("E", 1.500, fuel="Gasolio"),
+    ]
+    DISTANCES = {"A": 6.0, "B": 2.0, "C": 9.0, "D": 1.0, "E": 1.0}
+
+    def test_orders_by_price(self):
+        top = ranking(self.PRICES, "Benzina", self.DISTANCES, limit=10)
+
+        assert [p.station_id for p in top][0] == "C"
+
+    def test_breaks_ties_by_distance(self):
+        top = ranking(self.PRICES, "Benzina", self.DISTANCES, limit=10)
+
+        assert [p.station_id for p in top][1:3] == ["B", "A"]
+
+    def test_lists_each_station_once_at_its_lowest_price(self):
+        top = ranking(self.PRICES, "Benzina", self.DISTANCES, limit=10)
+
+        assert [p.station_id for p in top].count("A") == 1
+        assert next(p for p in top if p.station_id == "A").price == 1.949
+
+    def test_respects_the_limit(self):
+        assert len(ranking(self.PRICES, "Benzina", self.DISTANCES, limit=2)) == 2
+
+    def test_ignores_other_fuels(self):
+        top = ranking(self.PRICES, "Benzina", self.DISTANCES, limit=10)
+
+        assert "E" not in {p.station_id for p in top}
+
+    def test_returns_nothing_for_an_absent_fuel(self):
+        assert ranking(self.PRICES, "GPL", self.DISTANCES, limit=5) == []

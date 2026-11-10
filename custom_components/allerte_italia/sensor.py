@@ -5,6 +5,7 @@ from __future__ import annotations
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -24,7 +25,12 @@ async def async_setup_entry(
     fuel = coordinators.get("fuel")
     if fuel is not None and fuel.data is not None:
         for measurement in fuel.data.measurements:
-            entities.append(FuelPriceSensor(fuel, entry, measurement.key))
+            if measurement.key.startswith("cheapest_"):
+                entities.append(CheapestFuelSensor(fuel, entry, measurement.key))
+            else:
+                entities.append(FuelPriceSensor(fuel, entry, measurement.key))
+        if fuel.data.available:
+            _remove_stale_fuel_entities(hass, entry, entities)
 
     quakes = coordinators.get("quakes")
     if quakes is not None:
@@ -39,6 +45,27 @@ async def async_setup_entry(
         entities.append(HeatIndexSensor(heat, entry))
 
     async_add_entities(entities)
+
+
+def _remove_stale_fuel_entities(
+    hass: HomeAssistant, entry: ConfigEntry, entities: list[SensorEntity]
+) -> None:
+    """Drop fuel sensors this refresh no longer produces.
+
+    Turning per-station sensors off, or a station leaving the radius, would
+    otherwise leave hundreds of restored, unavailable entities behind. Only
+    called after a successful refresh, so a feed outage never wipes them.
+    """
+    prefix = f"{entry.entry_id}_fuel_"
+    current = {entity.unique_id for entity in entities}
+    registry = er.async_get(hass)
+    for registered in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            registered.domain == "sensor"
+            and registered.unique_id.startswith(prefix)
+            and registered.unique_id not in current
+        ):
+            registry.async_remove(registered.entity_id)
 
 
 class _BaseSensor(CoordinatorEntity[SourceCoordinator], SensorEntity):
@@ -62,10 +89,14 @@ class _BaseSensor(CoordinatorEntity[SourceCoordinator], SensorEntity):
 
 
 class FuelPriceSensor(_BaseSensor):
-    """One price at one station, or the cheapest for a fuel."""
+    """One price at one station, or the cheapest for a fuel.
+
+    Per-station sensors have no state class: with a hundred of them, long-term
+    statistics would grow the database for prices nobody charts. The cheapest
+    sensor is the one worth keeping statistics for.
+    """
 
     _attr_native_unit_of_measurement = "€/L"
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:fuel"
 
     def __init__(
@@ -103,6 +134,12 @@ class FuelPriceSensor(_BaseSensor):
     def extra_state_attributes(self) -> dict:
         measurement = self._measurement
         return dict(measurement.attributes) if measurement else {}
+
+
+class CheapestFuelSensor(FuelPriceSensor):
+    """Lowest price for a fuel, with a ranking of the best stations."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
 
 
 class LastQuakeSensor(_BaseSensor):

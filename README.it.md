@@ -34,7 +34,7 @@ avvisato quando il gasolio scende sotto 1,70 € o quando trema la terra vicino 
 
 | | Fonte | Cosa ottieni |
 |---|---|---|
-| ⛽ | **MIMIT** — prezzi ufficiali di tutti gli impianti italiani | Prezzo per distributore e carburante, più il più economico nel raggio scelto |
+| ⛽ | **MIMIT** — prezzi ufficiali di tutti gli impianti italiani | Il più economico per carburante con la classifica dei 5 migliori distributori nel raggio (sensori per singolo distributore opzionali) |
 | 🌍 | **INGV** — servizio sismologico nazionale | Ultimo terremoto per magnitudo, luogo, profondità e distanza da te |
 | ⚠️ | **Protezione Civile** — bollettini di criticità | Livello di allerta della tua zona: verde, giallo, arancione, rosso |
 | 🌡️ | **Indice di calore** | Temperatura percepita calcolata su dati che Home Assistant già ha |
@@ -99,8 +99,17 @@ L'INGV filtra lato server: la risposta è circa un kilobyte.
 
 ## Entità
 
-**Sensori** — un prezzo per distributore e carburante, il più economico per tipo,
-la magnitudo dell'ultimo terremoto, il livello di allerta, l'indice di calore.
+**Sensori** — il più economico per tipo di carburante, la magnitudo dell'ultimo
+terremoto, il livello di allerta, l'indice di calore.
+
+Il sensore del carburante più economico ha l'attributo `ranking`: i 5 distributori
+più convenienti nel raggio (prezzo, distributore, comune, distanza, data del
+prezzo), uno per impianto, a parità di prezzo vince il più vicino.
+
+Un sensore per ogni distributore è disattivato di default: in un raggio di 10 km
+intorno a una città sono centinaia di entità. Si attiva dalle opzioni con
+`fuel_per_station`; quei sensori non registrano statistiche a lungo termine.
+Quando l'opzione è spenta, i sensori per distributore già creati vengono rimossi.
 
 **Sensori binari** — terremoto recente sopra soglia, allerta attiva, allerta caldo.
 
