@@ -32,7 +32,7 @@ Four public Italian data sources, watched from a single integration, with thresh
 
 | | Source | What you get |
 |---|---|---|
-| ⛽ | **MIMIT** — official prices for every filling station in Italy | Price per station and fuel type, plus the cheapest one within your chosen radius |
+| ⛽ | **MIMIT** — official prices for every filling station in Italy | The cheapest price per fuel type, with a ranking of the 5 best stations in range (per-station sensors optional) |
 | 🌍 | **INGV** — Italy's national seismological service | The latest earthquake's magnitude, location, depth and distance from you |
 | ⚠️ | **Civil Protection** (Protezione Civile) — criticality bulletins | Your zone's alert level: green, yellow, orange, red |
 | 🌡️ | **Heat index** | Perceived temperature computed from data Home Assistant already has |
@@ -86,7 +86,11 @@ INGV filters server-side: the response is about one kilobyte.
 
 ## Entities
 
-**Sensors** — a price per station and fuel type, the cheapest per fuel type, the latest earthquake's magnitude, the alert level, the heat index.
+**Sensors** — the cheapest price per fuel type, the latest earthquake's magnitude, the alert level, the heat index.
+
+The cheapest-fuel sensor has a `ranking` attribute: the 5 best-priced stations in range (price, station, town, distance, price date), one per station, nearer first on equal prices.
+
+A sensor per station is off by default: a 10 km radius around a city means hundreds of entities. Enable it with the `fuel_per_station` option; those sensors do not record long-term statistics. When the option is off, previously created per-station sensors are removed.
 
 **Binary sensors** — recent earthquake above threshold, active alert, heat alert.
 

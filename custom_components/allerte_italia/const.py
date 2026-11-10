@@ -43,6 +43,7 @@ CONF_ALERT_TOWN: Final = "alert_town"
 CONF_NOTIFY_SERVICE: Final = "notify_service"
 CONF_FUEL_ENABLED: Final = "fuel_enabled"
 CONF_FUEL_THRESHOLD: Final = "fuel_threshold"
+CONF_FUEL_PER_STATION: Final = "fuel_per_station"
 CONF_QUAKE_ENABLED: Final = "quake_enabled"
 CONF_QUAKE_MIN_MAGNITUDE: Final = "quake_min_magnitude"
 CONF_ALERT_ENABLED: Final = "alert_enabled"
@@ -57,6 +58,14 @@ DEFAULT_RADIUS_QUAKES_KM: Final = 100.0
 DEFAULT_QUAKE_MIN_MAGNITUDE: Final = 3.0
 DEFAULT_HEAT_THRESHOLD: Final = 32.0
 DEFAULT_FUEL_TYPES: Final = ["Benzina", "Gasolio"]
+
+# One sensor per station and fuel quickly runs into hundreds of entities (a 10 km
+# radius around a city is ~180 stations), each recording history. Off by
+# default: the "cheapest" sensor carries a ranking of the best stations instead.
+DEFAULT_FUEL_PER_STATION: Final = False
+
+# How many stations the "cheapest" sensor lists in its ranking attribute.
+FUEL_RANKING_SIZE: Final = 5
 
 # --- Alert levels ----------------------------------------------------------
 # Ordered from calm to severe, so a configured minimum can be compared.

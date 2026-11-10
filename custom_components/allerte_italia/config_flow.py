@@ -20,6 +20,7 @@ from .const import (
     CONF_ALERT_MIN_LEVEL,
     CONF_ALERT_TOWN,
     CONF_FUEL_ENABLED,
+    CONF_FUEL_PER_STATION,
     CONF_FUEL_THRESHOLD,
     CONF_FUEL_TYPES,
     CONF_HEAT_ENABLED,
@@ -29,6 +30,7 @@ from .const import (
     CONF_QUAKE_MIN_MAGNITUDE,
     CONF_RADIUS_FUEL,
     CONF_RADIUS_QUAKES,
+    DEFAULT_FUEL_PER_STATION,
     DEFAULT_FUEL_TYPES,
     DEFAULT_HEAT_THRESHOLD,
     DEFAULT_QUAKE_MIN_MAGNITUDE,
@@ -104,6 +106,12 @@ class AllerteItaliaOptionsFlow(OptionsFlow):
                 vol.Optional(
                     CONF_FUEL_THRESHOLD, default=current.get(CONF_FUEL_THRESHOLD, 1.70)
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=5.0)),
+                vol.Optional(
+                    CONF_FUEL_PER_STATION,
+                    default=current.get(
+                        CONF_FUEL_PER_STATION, DEFAULT_FUEL_PER_STATION
+                    ),
+                ): bool,
                 vol.Optional(
                     CONF_QUAKE_ENABLED, default=current.get(CONF_QUAKE_ENABLED, True)
                 ): bool,
